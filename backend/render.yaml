@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: heic-converter-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn convert-server:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.12.3

@@ -1,0 +1,12 @@
+{
+  "name": "heic-converter-cloudflare",
+  "version": "1.0.0",
+  "description": "HEIC to JPEG converter hosted on Cloudflare Pages",
+  "scripts": {
+    "deploy": "wrangler pages deploy . --project-name=heic-converter",
+    "dev": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

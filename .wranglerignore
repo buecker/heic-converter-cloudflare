@@ -1,0 +1,9 @@
+backend/
+node_modules/
+.git/
+*.md
+!README.md
+.gitignore
+wrangler.toml
+package.json
+package-lock.json

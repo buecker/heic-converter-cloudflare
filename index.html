@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Guardian Insurance HEIC Converter</title>
+  <!-- Try loading from different CDNs -->
+  <script>
+    // Configuration - Update this URL when deploying
+    window.BACKEND_URL = 'http://localhost:5001'; // Change to your deployed backend URL
+    // Example for production: 'https://your-backend.railway.app' or 'https://your-backend.render.com'
+
+    // Dynamically load scripts to bypass some MIME type issues
+    window.loadScript = function(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.2/dist/FileSaver.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f0f2f5;
+      background-image: linear-gradient(to bottom right, #f0f2f5, #d9e2f3);
+    }
+    h1 {
+      color: #002d72;
+      margin-bottom: 40px;
+    }
+    #drop-zone {
+      border: 3px dashed #b0c4de;
+      border-radius: 20px;
+      width: 400px;
+      height: 250px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #8a9aa8;
+      font-size: 1.2em;
+      margin-bottom: 20px;
+      transition: border-color 0.3s, color 0.3s, box-shadow 0.3s;
+      background-color: #fff;
+    }
+    #drop-zone.dragover {
+      border-color: #002d72;
+      color: #002d72;
+      box-shadow: 0 0 10px rgba(0,45,114,0.3);
+    }
+    #convert-btn {
+      padding: 12px 24px;
+      font-size: 1.1em;
+      border: none;
+      border-radius: 8px;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    #convert-btn:hover {
+      background-color: #0056b3;
+    }
+    #file-input-label {
+      color: #007bff;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <img src="https://guardianinsurance.com/images/logo.png" alt="Guardian Insurance Logo" style="max-width: 200px; margin-bottom: 20px;">
+  <h1>Guardian Insurance HEIC Converter</h1>
+  <div id="drop-zone">
+    <p>Drag & drop HEIC files here</p>
+    <p>or</p>
+    <label id="file-input-label" for="heic-input">browse for files</label>
+    <input type="file" id="heic-input" multiple style="display: none;">
+  </div>
+    <div id="file-list" style="margin-top: 20px; width: 400px; max-height: 150px; overflow-y: auto;"></div>
+    <button id="convert-btn">Convert and Download</button>
+
+  <script>
+    const dropZone = document.getElementById('drop-zone');
+    const heicInput = document.getElementById('heic-input');
+    const fileInputLabel = document.getElementById('file-input-label');
+    let selectedFiles = [];
+
+    // Conversion method 1: heic2any with multiple attempts
+    async function convertWithHeic2Any(file) {
+      if (typeof heic2any === 'undefined') {
+        throw new Error('heic2any not loaded');
+      }
+      console.log('Trying heic2any...');
+
+      // Try different options
+      const attempts = [
+        { toType: 'image/jpeg', quality: 0.9 },
+        { toType: 'image/png' },
+        { toType: 'image/jpeg', quality: 0.5, multiple: false }
+      ];
+
+      for (const options of attempts) {
+        try {
+          console.log('  Attempting with options:', options);
+          const result = await heic2any({ blob: file, ...options });
+          return Array.isArray(result) ? result[0] : result;
+        } catch (e) {
+          console.log('  Failed:', e.message);
+          continue;
+        }
+      }
+
+      throw new Error('All heic2any options failed');
+    }
+
+    // Conversion method 2: Try using local backend server
+    async function convertWithBackend(file) {
+      console.log('Trying local backend server...');
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${window.BACKEND_URL}/convert`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+
+        return await response.blob();
+      } catch (error) {
+        if (error.message.includes('Failed to fetch')) {
+          throw new Error('Backend server not running. Start it with: python convert-server.py');
+        }
+        throw error;
+      }
+    }
+
+    // Master conversion function with fallback
+    async function convertHeicToJpeg(file) {
+      const methods = [
+        { name: 'heic2any', fn: convertWithHeic2Any },
+        { name: 'Backend Server', fn: convertWithBackend }
+      ];
+
+      let lastError = null;
+
+      for (const method of methods) {
+        try {
+          console.log(`Attempting conversion with ${method.name}...`);
+          const result = await method.fn(file);
+          console.log(`✓ Success with ${method.name}`);
+          return result;
+        } catch (error) {
+          console.warn(`✗ ${method.name} failed:`, error.message);
+          lastError = error;
+          continue;
+        }
+      }
+
+      // All methods failed
+      throw new Error(`All conversion methods failed. Last error: ${lastError?.message || 'Unknown error'}`);
+    }
+
+    // Prevent default drag behaviors on the entire document to avoid open/save popup in Firefox
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      selectedFiles = Array.from(e.dataTransfer.files);
+      console.log(`Dropped ${selectedFiles.length} files on document`);
+      updateFileList();
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+      console.log('Drag over drop zone');
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+      console.log('Drag leave drop zone');
+      dropZone.classList.remove('dragover');
+    });
+
+    // Drop handled at document level
+
+    fileInputLabel.addEventListener('click', () => {
+      heicInput.click();
+    });
+
+    heicInput.addEventListener('change', () => {
+      console.log('File input changed');
+      selectedFiles = Array.from(heicInput.files);
+      updateFileList();
+    });
+
+    function updateFileList() {
+      const fileList = document.getElementById('file-list');
+      fileList.innerHTML = '';
+      if (selectedFiles.length > 0) {
+        const ul = document.createElement('ul');
+        ul.style.listStyleType = 'none';
+        ul.style.padding = '0';
+        for (const file of selectedFiles) {
+          const li = document.createElement('li');
+          li.textContent = file.name;
+          li.style.marginBottom = '5px';
+          ul.appendChild(li);
+        }
+        fileList.appendChild(ul);
+      }
+    }
+
+    document.getElementById('convert-btn').addEventListener('click', async () => {
+      console.log('Convert button clicked');
+      console.log(`Number of files: ${selectedFiles.length}`);
+
+      if (selectedFiles.length === 0) {
+        alert('Please select at least one HEIC file.');
+        return;
+      }
+
+      const zip = new JSZip();
+      let hasErrors = false;
+      let successCount = 0;
+      const conversionResults = [];
+
+      for (const file of selectedFiles) {
+        console.log(`\n=== Processing file: ${file.name} ===`);
+        try {
+          const convertedBlob = await convertHeicToJpeg(file);
+          console.log(`✓ Conversion successful for ${file.name}`);
+          const fileName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
+          zip.file(fileName, convertedBlob);
+          successCount++;
+          conversionResults.push({ file: file.name, success: true });
+        } catch (error) {
+          hasErrors = true;
+          console.error(`✗ Error converting ${file.name}:`, error);
+          conversionResults.push({ file: file.name, success: false, error: error.message });
+
+          // Provide detailed error message with suggestions
+          let errorMsg = `Failed to convert ${file.name}:\n${error.message}\n\n`;
+          errorMsg += `Suggestions:\n`;
+          errorMsg += `1. Try using Google Chrome or Microsoft Edge (better HEIC support)\n`;
+          errorMsg += `2. Use a desktop app like https://heictojpg.com\n`;
+          errorMsg += `3. Ask your admin to set up a backend conversion service\n\n`;
+          errorMsg += `This HEIC file format variant isn't supported by browser-based converters.`;
+          alert(errorMsg);
+        }
+      }
+
+      // Show summary
+      console.log('\n=== Conversion Summary ===');
+      conversionResults.forEach(result => {
+        if (result.success) {
+          console.log(`✓ ${result.file}`);
+        } else {
+          console.log(`✗ ${result.file}: ${result.error}`);
+        }
+      });
+
+      if (successCount > 0) {
+        console.log('\nGenerating ZIP...');
+        zip.generateAsync({ type: 'blob' }).then((content) => {
+          console.log('ZIP generated, saving...');
+          saveAs(content, 'converted-images.zip');
+          if (hasErrors) {
+            alert(`Converted ${successCount} out of ${selectedFiles.length} files successfully. Check console for details.`);
+          } else {
+            alert(`Successfully converted all ${successCount} files!`);
+          }
+        }).catch((error) => {
+          console.error('Error generating ZIP:', error);
+          alert('Error creating ZIP file: ' + error.message);
+        });
+      } else if (hasErrors) {
+        alert('All conversions failed. Please check the console (F12) for details and try a different browser.');
+      }
+    });
+  </script>
+</body>
+</html>
